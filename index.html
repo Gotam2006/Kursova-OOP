@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Snake Game with High Score and Sound</title>
+<style>
+  body {
+    background-color: #ffffff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+    font-family: 'Poppins', sans-serif;
+    color: #6b7280;
+    user-select: none;
+  }
+  canvas {
+    background-color: #f9fafb;
+    border: 2px solid #2563eb;
+    border-radius: 12px;
+    image-rendering: pixelated;
+  }
+  #scoreboard {
+    position: absolute;
+    top: 10px;
+    font-size: 24px;
+    width: 100%;
+    text-align: center;
+    font-weight: 600;
+    color: #2563eb;
+  }
+</style>
+</head>
+<body>
+<canvas id="gameCanvas" width="625" height="625" aria-label="Snake game playing field"></canvas>
+<div id="scoreboard" aria-live="polite">
+  Score: <span id="score">0</span> &nbsp;&nbsp;|&nbsp;&nbsp; High Score: <span id="highScore">0</span>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+
+  const tileSize = 25;
+  const width = canvas.width / tileSize;
+  const height = canvas.height / tileSize;
+
+  let snake = [];
+  let direction = 'RIGHT';
+  let apple = {};
+  let score = 0;
+  let highScore = 0;
+  let gameOver = false;
+
+  // Web Audio API context and sound function for eating apple
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  const audioCtx = new AudioContext();
+
+  function playEatSound() {
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+
+    oscillator.type = 'triangle';
+    oscillator.frequency.setValueAtTime(600, audioCtx.currentTime);
+
+    gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.2);
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    oscillator.start(audioCtx.currentTime);
+    oscillator.stop(audioCtx.currentTime + 0.2);
+  }
+
+  // Load high score from localStorage if it exists
+  if(localStorage.getItem('snakeHighScore')) {
+    highScore = parseInt(localStorage.getItem('snakeHighScore'), 10) || 0;
+  }
+  document.getElementById('highScore').textContent = highScore;
+
+  function setup() {
+    snake = [];
+    score = 0;
+    direction = 'RIGHT';
+    gameOver = false;
+    for (let i = 5; i >= 0; i--) {
+      snake.push({x: i, y: Math.floor(height/2)});
+    }
+    placeApple();
+    updateScore();
+  }
+
+  function placeApple() {
+    do {
+      apple.x = Math.floor(Math.random() * width);
+      apple.y = Math.floor(Math.random() * height);
+    } while(snake.some(s => s.x === apple.x && s.y === apple.y));
+  }
+
+  function updateScore() {
+    document.getElementById('score').textContent = score;
+    if(score > highScore) {
+      highScore = score;
+      document.getElementById('highScore').textContent = highScore;
+      localStorage.setItem('snakeHighScore', highScore);
+    }
+  }
+
+  function draw() {
+    // Clear
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Draw grid lines
+    ctx.strokeStyle = '#e5e7eb';
+    ctx.lineWidth = 1;
+    for(let i=0; i<=width; i++) {
+      ctx.beginPath();
+      ctx.moveTo(i*tileSize, 0);
+      ctx.lineTo(i*tileSize, canvas.height);
+      ctx.stroke();
+    }
+    for(let j=0; j<=height; j++) {
+      ctx.beginPath();
+      ctx.moveTo(0, j*tileSize);
+      ctx.lineTo(canvas.width, j*tileSize);
+      ctx.stroke();
+    }
+
+    // Draw apple
+    ctx.fillStyle = '#2563eb';
+    ctx.beginPath();
+    ctx.ellipse(
+      apple.x*tileSize + tileSize/2,
+      apple.y*tileSize + tileSize/2,
+      tileSize*0.4, tileSize*0.4, 0, 0, 2*Math.PI
+    );
+    ctx.fill();
+
+    // Draw snake
+    snake.forEach((segment, index) => {
+      if(index === 0) {
+        // head with gradient
+        let gradient = ctx.createLinearGradient(segment.x*tileSize, segment.y*tileSize, segment.x*tileSize+tileSize, segment.y*tileSize+tileSize);
+        gradient.addColorStop(0, '#4F46E5'); // Indigo-600
+        gradient.addColorStop(1, '#6366F1'); // Indigo-400
+        ctx.fillStyle = gradient;
+      } else {
+        let alpha = 1 - (index * 0.15);
+        if(alpha < 0.3) alpha = 0.3;
+        ctx.fillStyle = `rgba(99,102,241,${alpha})`; // Indigo-400 with alpha
+      }
+      roundRect(ctx, segment.x*tileSize, segment.y*tileSize, tileSize, tileSize, 6, true, false);
+    });
+
+    if(gameOver) {
+      ctx.fillStyle = 'rgba(0,0,0,0.2)';
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle = '#ef4444'; // Red-500
+      ctx.font = '48px Poppins, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Game Over', canvas.width/2, canvas.height/2);
+      ctx.fillStyle = '#374151'; // Gray-700
+      ctx.font = '20px Poppins, sans-serif';
+      ctx.fillText('Press Space to Restart', canvas.width/2, canvas.height/2 + 40);
+    }
+  }
+
+  function roundRect(ctx, x, y, width, height, radius, fill, stroke) {
+    if (typeof radius === 'number') {
+      radius = {tl: radius, tr: radius, br: radius, bl: radius};
+    } else {
+      var defaultRadius = {tl: 0, tr: 0, br: 0, bl: 0};
+      for (var side in defaultRadius) {
+        radius[side] = radius[side] || defaultRadius[side];
+      }
+    }
+    ctx.beginPath();
+    ctx.moveTo(x + radius.tl, y);
+    ctx.lineTo(x + width - radius.tr, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + radius.tr);
+    ctx.lineTo(x + width, y + height - radius.br);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - radius.br, y + height);
+    ctx.lineTo(x + radius.bl, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - radius.bl);
+    ctx.lineTo(x, y + radius.tl);
+    ctx.quadraticCurveTo(x, y, x + radius.tl, y);
+    ctx.closePath();
+    if (fill) ctx.fill();
+    if (stroke) ctx.stroke();
+  }
+
+  function update() {
+    if(gameOver) return;
+
+    // Move snake body
+    for(let i = snake.length - 1; i > 0; i--) {
+      snake[i].x = snake[i-1].x;
+      snake[i].y = snake[i-1].y;
+    }
+
+    // Move head
+    if(direction === 'LEFT') snake[0].x--;
+    else if(direction === 'RIGHT') snake[0].x++;
+    else if(direction === 'UP') snake[0].y--;
+    else if(direction === 'DOWN') snake[0].y++;
+
+    // Check wall collision
+    if(snake[0].x < 0 || snake[0].x >= width || snake[0].y < 0 || snake[0].y >= height) {
+      gameOver = true;
+    }
+
+    // Check self collision
+    for(let i = 1; i < snake.length; i++) {
+      if(snake[0].x === snake[i].x && snake[0].y === snake[i].y) {
+        gameOver = true;
+        break;
+      }
+    }
+
+    // Check apple collision
+    if(snake[0].x === apple.x && snake[0].y === apple.y) {
+      score++;
+      updateScore();
+      snake.push({x: snake[snake.length-1].x, y: snake[snake.length-1].y});
+      placeApple();
+      playEatSound(); // Play sound when eating apple
+    }
+  }
+
+  function gameLoop() {
+    update();
+    draw();
+  }
+
+  function changeDirection(e) {
+    const key = e.key;
+    if(key === 'ArrowLeft' && direction !== 'RIGHT') direction = 'LEFT';
+    else if(key === 'ArrowRight' && direction !== 'LEFT') direction = 'RIGHT';
+    else if(key === 'ArrowUp' && direction !== 'DOWN') direction = 'UP';
+    else if(key === 'ArrowDown' && direction !== 'UP') direction = 'DOWN';
+    else if(key === ' ' && gameOver) {
+      setup();
+    }
+  }
+
+  window.addEventListener('keydown', changeDirection);
+
+  setup();
+  setInterval(gameLoop, 120);
+})();
+</script>
+</body>
+</html>
